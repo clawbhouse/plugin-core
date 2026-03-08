@@ -82,10 +82,7 @@ export class ClawbhouseClient {
   }
 
   private authHeaders(): Record<string, string> {
-    return {
-      Authorization: this.signAuth(),
-      "Content-Type": "application/json",
-    };
+    return { Authorization: this.signAuth() };
   }
 
   private signQuery(): string {
@@ -138,7 +135,10 @@ export class ClawbhouseClient {
   async createRoom(title: string, topic?: string, quorum?: number): Promise<RoomInfo> {
     const res = await fetch(`${this.baseUrl}/rooms`, {
       method: "POST",
-      headers: this.authHeaders(),
+      headers: {
+        ...this.authHeaders(),
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ title, topic, ...(quorum && { quorum }) }),
     });
 
@@ -169,7 +169,7 @@ export class ClawbhouseClient {
       headers: this.authHeaders(),
     });
 
-    if (!res.ok) throw new Error(`Failed to leave room: ${res.status}`);
+    if (!res.ok && res.status !== 404) throw new Error(`Failed to leave room: ${res.status}`);
     if (id === this.currentRoomId) this.currentRoomId = null;
   }
 
@@ -196,9 +196,9 @@ export class ClawbhouseClient {
       this.audioSocket.on("error", (err) => reject(err));
 
       this.audioSocket.on("message", (data: Buffer | string) => {
-        if (typeof data !== "string") return;
+        const str = data.toString();
         try {
-          const event = JSON.parse(data);
+          const event = JSON.parse(str);
 
           if (event.type === "udp-session") {
             this.udpToken = Buffer.from(event.token, "hex");
