@@ -12,6 +12,17 @@ interface Message {
   timestamp: number;
 }
 
+interface AgentInfo {
+  agentId: string;
+  name: string;
+}
+
+interface QuorumWarning {
+  quorum: number;
+  agentCount: number;
+  queue: string[];
+}
+
 export class ClawbhouseToolHandlerBase {
   private client: ClawbhouseClient;
   private ttsProviderFactory: TtsProviderFactory;
@@ -21,6 +32,11 @@ export class ClawbhouseToolHandlerBase {
   private pendingMessages: Message[] = [];
   private micHolder: string | null = null;
   private micQueue: string[] = [];
+  private listenerCount: number = 0;
+  private agentCount: number = 0;
+  private agents: Map<string, AgentInfo> = new Map();
+  private roomEmpty: boolean = false;
+  private quorumWarning: QuorumWarning | null = null;
   private roomClosingWarning: { reason: string; hint: string } | null = null;
   private roomEndedInfo: { reason: string; hint: string } | null = null;
 
@@ -97,6 +113,17 @@ export class ClawbhouseToolHandlerBase {
     if (this.client.currentRoom) {
       result.micHolder = this.micHolder;
       result.micQueue = this.micQueue;
+      result.listenerCount = this.listenerCount;
+      result.agentCount = this.agentCount;
+      if (this.agents.size > 0) {
+        result.agents = Array.from(this.agents.values());
+      }
+      if (this.roomEmpty) {
+        result.roomEmpty = true;
+      }
+      if (this.quorumWarning) {
+        result.micWaitingQuorum = this.quorumWarning;
+      }
     }
 
     return JSON.stringify(result);
@@ -110,10 +137,51 @@ export class ClawbhouseToolHandlerBase {
       this.micQueue = (event.queue as string[]) ?? [];
     }
 
+    if (type === "listener_count") {
+      this.listenerCount = (event.count as number) ?? 0;
+    }
+
+    if (type === "audience_update") {
+      this.listenerCount = (event.listenerCount as number) ?? this.listenerCount;
+      if (event.agentCount != null) {
+        this.agentCount = event.agentCount as number;
+      }
+      if (event.event === "joined" || event.event === "agent_joined") {
+        this.roomEmpty = false;
+      }
+    }
+
+    if (type === "room_empty") {
+      this.roomEmpty = true;
+    }
+
     if (type === "mic_expired") {
       if (this.micHolder === event.agentId) {
         this.micHolder = null;
       }
+    }
+
+    if (type === "mic_waiting_quorum") {
+      this.quorumWarning = {
+        quorum: event.quorum as number,
+        agentCount: event.agentCount as number,
+        queue: (event.queue as string[]) ?? [],
+      };
+    }
+
+    if (type === "mic_passed") {
+      this.quorumWarning = null;
+    }
+
+    if (type === "agent_joined") {
+      this.agents.set(event.agentId as string, {
+        agentId: event.agentId as string,
+        name: event.name as string,
+      });
+    }
+
+    if (type === "agent_left") {
+      this.agents.delete(event.agentId as string);
     }
 
     if (type === "agent_spoke") {
@@ -142,9 +210,14 @@ export class ClawbhouseToolHandlerBase {
         hint: event.hint as string,
       };
       this.roomClosingWarning = null;
+      this.quorumWarning = null;
       this.pendingMessages.length = 0;
       this.micHolder = null;
       this.micQueue = [];
+      this.listenerCount = 0;
+      this.agentCount = 0;
+      this.agents.clear();
+      this.roomEmpty = false;
       this.client.clearRoom();
       this.destroyTtsProvider();
     }
@@ -163,6 +236,11 @@ export class ClawbhouseToolHandlerBase {
     this.pendingMessages.length = 0;
     this.micHolder = null;
     this.micQueue = [];
+    this.listenerCount = 0;
+    this.agentCount = 0;
+    this.agents.clear();
+    this.roomEmpty = false;
+    this.quorumWarning = null;
     this.roomClosingWarning = null;
     this.destroyTtsProvider();
     this.client.clearRoom();
