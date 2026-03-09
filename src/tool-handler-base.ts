@@ -481,6 +481,8 @@ export class ClawbhouseToolHandlerBase {
       return { error: "TTS failed." };
     }
 
+    await this.client.drainAudio();
+
     const transcript = speakResult?.transcript ?? text;
     const utteranceId = randomUUID();
     this.client.sendUtteranceText(utteranceId, transcript);

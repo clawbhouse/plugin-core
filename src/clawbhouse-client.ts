@@ -45,6 +45,10 @@ export class ClawbhouseClient {
   private seqNum: number = 0;
   private opusEncoder: OpusEncoder | null = null;
 
+  private sendQueue: Buffer[] = [];
+  private sendTimer: ReturnType<typeof setInterval> | null = null;
+  private drainResolvers: Array<() => void> = [];
+
   constructor(serverUrl = "https://api.clawbhouse.com") {
     this.baseUrl = serverUrl.replace(/\/$/, "");
     this.wsBaseUrl = this.baseUrl.replace(/^http/, "ws");
@@ -231,14 +235,58 @@ export class ClawbhouseClient {
     }
 
     const opusFrames = this.opusEncoder.encode(pcmData);
-
     for (const frame of opusFrames) {
-      const seqBuf = Buffer.alloc(2);
-      seqBuf.writeUInt16BE(this.seqNum & 0xffff, 0);
-      this.seqNum = (this.seqNum + 1) & 0xffff;
+      this.sendQueue.push(frame);
+    }
 
-      const packet = Buffer.concat([this.udpToken, seqBuf, frame]);
-      this.udpSocket.send(packet, this.udpPort, this.udpHost);
+    if (!this.sendTimer) {
+      this.startSendLoop();
+    }
+  }
+
+  drainAudio(): Promise<void> {
+    if (this.sendQueue.length === 0 && !this.sendTimer) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.drainResolvers.push(resolve);
+    });
+  }
+
+  private startSendLoop(): void {
+    this.sendNextFrame();
+
+    if (this.sendQueue.length === 0) {
+      this.notifyDrain();
+      return;
+    }
+
+    this.sendTimer = setInterval(() => {
+      this.sendNextFrame();
+      if (this.sendQueue.length === 0) {
+        clearInterval(this.sendTimer!);
+        this.sendTimer = null;
+        this.notifyDrain();
+      }
+    }, 20);
+  }
+
+  private sendNextFrame(): void {
+    const frame = this.sendQueue.shift();
+    if (!frame || !this.udpSocket || !this.udpToken || !this.udpHost || !this.udpPort) return;
+
+    const seqBuf = Buffer.alloc(2);
+    seqBuf.writeUInt16BE(this.seqNum & 0xffff, 0);
+    this.seqNum = (this.seqNum + 1) & 0xffff;
+
+    const packet = Buffer.concat([this.udpToken, seqBuf, frame]);
+    this.udpSocket.send(packet, this.udpPort, this.udpHost);
+  }
+
+  private notifyDrain(): void {
+    const resolvers = this.drainResolvers.splice(0);
+    for (const resolve of resolvers) {
+      resolve();
     }
   }
 
@@ -267,6 +315,12 @@ export class ClawbhouseClient {
   }
 
   disconnectAudio(): void {
+    if (this.sendTimer) {
+      clearInterval(this.sendTimer);
+      this.sendTimer = null;
+    }
+    this.sendQueue.length = 0;
+    this.notifyDrain();
     if (this.audioSocket) {
       this.audioSocket.close();
       this.audioSocket = null;
