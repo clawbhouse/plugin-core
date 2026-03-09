@@ -23,11 +23,19 @@ interface QuorumWarning {
   queue: string[];
 }
 
+export interface RoomNotification {
+  type: string;
+  message: string;
+}
+
+export type RoomNotificationSink = (notification: RoomNotification) => void;
+
 export class ClawbhouseToolHandlerBase {
   private client: ClawbhouseClient;
   private ttsProviderFactory: TtsProviderFactory;
   private serverUrl: string;
   private registered = false;
+  private notificationSink: RoomNotificationSink | null = null;
 
   private pendingMessages: Message[] = [];
   private micHolder: string | null = null;
@@ -46,6 +54,18 @@ export class ClawbhouseToolHandlerBase {
     this.serverUrl = config.serverUrl ?? "https://api.clawbhouse.com";
     this.client = new ClawbhouseClient(this.serverUrl);
     this.ttsProviderFactory = config.ttsProvider;
+  }
+
+  setNotificationSink(sink: RoomNotificationSink | null): void {
+    this.notificationSink = sink;
+  }
+
+  get currentRoom(): string | null {
+    return this.client.currentRoom;
+  }
+
+  get isRegistered(): boolean {
+    return this.registered;
   }
 
   async init(): Promise<void> {
@@ -84,9 +104,6 @@ export class ClawbhouseToolHandlerBase {
         break;
       case "clawbhouse_speak":
         result = await this.speak(args);
-        break;
-      case "clawbhouse_heartbeat":
-        result = this.heartbeat();
         break;
       case "clawbhouse_leave_room":
         result = await this.leaveRoom();
@@ -129,12 +146,26 @@ export class ClawbhouseToolHandlerBase {
     return JSON.stringify(result);
   }
 
+  private notify(type: string, message: string): void {
+    this.notificationSink?.({ type, message });
+  }
+
   private handleEvent = (event: Record<string, unknown>): void => {
     const type = event.type as string;
 
     if (type === "mic_state" || type === "mic_passed" || type === "mic_queue_updated") {
       this.micHolder = (event.holder as string) ?? null;
       this.micQueue = (event.queue as string[]) ?? [];
+
+      if (type === "mic_passed") {
+        this.quorumWarning = null;
+        if (this.micHolder) {
+          const name = this.agents.get(this.micHolder)?.name ?? this.micHolder;
+          this.notify("mic_passed", `The mic passed to ${name}.`);
+        } else {
+          this.notify("mic_passed", "The mic is open. No one is holding it.");
+        }
+      }
     }
 
     if (type === "listener_count") {
@@ -149,15 +180,30 @@ export class ClawbhouseToolHandlerBase {
       if (event.event === "joined" || event.event === "agent_joined") {
         this.roomEmpty = false;
       }
+      const sub = event.event as string;
+      if (sub === "joined") {
+        this.notify("audience_joined", `A listener joined. ${this.listenerCount} human${this.listenerCount === 1 ? "" : "s"} listening.`);
+      } else if (sub === "left") {
+        this.notify("audience_left", `A listener left. ${this.listenerCount} human${this.listenerCount === 1 ? "" : "s"} listening.`);
+      }
     }
 
     if (type === "room_empty") {
       this.roomEmpty = true;
+      this.notify("room_empty", "You're alone with no audience. Audio is paused until someone joins.");
     }
 
     if (type === "mic_expired") {
-      if (this.micHolder === event.agentId) {
+      const expiredId = event.agentId as string;
+      if (this.micHolder === expiredId) {
         this.micHolder = null;
+      }
+      const isMe = expiredId === this.client.currentAgentId;
+      if (isMe) {
+        this.notify("mic_expired", "Your mic time expired. Use clawbhouse_request_mic to rejoin the queue.");
+      } else {
+        const name = this.agents.get(expiredId)?.name ?? expiredId;
+        this.notify("mic_expired", `${name}'s mic time expired. The mic will pass to the next speaker.`);
       }
     }
 
@@ -167,10 +213,7 @@ export class ClawbhouseToolHandlerBase {
         agentCount: event.agentCount as number,
         queue: (event.queue as string[]) ?? [],
       };
-    }
-
-    if (type === "mic_passed") {
-      this.quorumWarning = null;
+      this.notify("mic_waiting_quorum", `Mic can't advance — need ${event.quorum} agents but only ${event.agentCount} are here.`);
     }
 
     if (type === "agent_joined") {
@@ -178,10 +221,13 @@ export class ClawbhouseToolHandlerBase {
         agentId: event.agentId as string,
         name: event.name as string,
       });
+      this.notify("agent_joined", `${event.name} joined the room.`);
     }
 
     if (type === "agent_left") {
+      const name = this.agents.get(event.agentId as string)?.name ?? (event.agentId as string);
       this.agents.delete(event.agentId as string);
+      this.notify("agent_left", `${name} left the room.`);
     }
 
     if (type === "agent_spoke") {
@@ -191,6 +237,7 @@ export class ClawbhouseToolHandlerBase {
         text: event.text as string,
         timestamp: Date.now(),
       });
+      this.notify("agent_spoke", `${event.name}: ${event.text}`);
     }
 
     if (type === "room_closing") {
@@ -198,6 +245,7 @@ export class ClawbhouseToolHandlerBase {
         reason: event.reason as string,
         hint: event.hint as string,
       };
+      this.notify("room_closing", `Room closing in 60s: ${event.reason}. ${event.hint}`);
     }
 
     if (type === "room_closing_cancelled") {
@@ -220,6 +268,7 @@ export class ClawbhouseToolHandlerBase {
       this.roomEmpty = false;
       this.client.clearRoom();
       this.destroyTtsProvider();
+      this.notify("room_ended", `Room ended: ${event.reason}. ${event.hint}`);
     }
 
     console.log("[clawbhouse]", event);
@@ -439,13 +488,6 @@ export class ClawbhouseToolHandlerBase {
       message: `Spoke: "${text}"`,
       audioDurationMs: Math.round((totalPcmLength / (AUDIO_SAMPLE_RATE * 2)) * 1000),
     };
-  }
-
-  private heartbeat(): Record<string, unknown> {
-    if (!this.client.currentRoom) {
-      return { error: "Not in a room." };
-    }
-    return { ok: true };
   }
 
   private async leaveRoom(): Promise<Record<string, unknown>> {

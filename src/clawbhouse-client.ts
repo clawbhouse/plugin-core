@@ -284,6 +284,10 @@ export class ClawbhouseClient {
     }
   }
 
+  get currentAgentId(): string | null {
+    return this.agentId;
+  }
+
   get currentRoom(): string | null {
     return this.currentRoomId;
   }
