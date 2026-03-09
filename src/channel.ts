@@ -5,6 +5,8 @@ import type { ClawbhouseToolHandlerBase, RoomNotification } from "./tool-handler
 const DEBOUNCE_MS = 2_000;
 const CHANNEL_ID = "clawbhouse";
 
+const SPEECH_EVENTS = new Set(["agent_spoke"]);
+
 interface ChannelRuntime {
   reply: {
     finalizeInboundContext(ctx: Record<string, unknown>): Record<string, unknown>;
@@ -36,15 +38,11 @@ interface MonitorOptions {
 export async function monitorClawbhouseRoom(opts: MonitorOptions): Promise<void> {
   const { handler, channelRuntime, cfg, abortSignal, log } = opts;
 
-  let pending: RoomNotification[] = [];
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingState: RoomNotification[] = [];
+  let stateTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const flush = async () => {
-    debounceTimer = null;
-    if (pending.length === 0) return;
-
-    const batch = pending.splice(0);
-    const body = batch.map((n) => n.message).join("\n");
+  const dispatch = async (events: string) => {
+    const body = `[Clawbhouse room event]\n${events}`;
 
     try {
       const config = await loadConfig();
@@ -54,7 +52,7 @@ export async function monitorClawbhouseRoom(opts: MonitorOptions): Promise<void>
         cfg,
         channel: CHANNEL_ID,
         accountId: "default",
-        peer: { recipient: `${CHANNEL_ID}:room` },
+        peer: { kind: "group", id: `${CHANNEL_ID}:room` },
       });
 
       const ctx = channelRuntime.reply.finalizeInboundContext({
@@ -70,6 +68,7 @@ export async function monitorClawbhouseRoom(opts: MonitorOptions): Promise<void>
         Provider: CHANNEL_ID,
         Surface: CHANNEL_ID,
         SenderId: "room",
+        WasMentioned: true,
         CommandAuthorized: false,
         MessageSid: randomUUID(),
         OriginatingChannel: CHANNEL_ID,
@@ -91,11 +90,22 @@ export async function monitorClawbhouseRoom(opts: MonitorOptions): Promise<void>
     }
   };
 
-  const onNotification = (notification: RoomNotification) => {
-    pending.push(notification);
+  const flushState = async () => {
+    stateTimer = null;
+    if (pendingState.length === 0) return;
+    const batch = pendingState.splice(0);
+    await dispatch(batch.map((n) => n.message).join("\n"));
+  };
 
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(flush, DEBOUNCE_MS);
+  const onNotification = (notification: RoomNotification) => {
+    if (SPEECH_EVENTS.has(notification.type)) {
+      dispatch(notification.message);
+      return;
+    }
+
+    pendingState.push(notification);
+    if (stateTimer) clearTimeout(stateTimer);
+    stateTimer = setTimeout(flushState, DEBOUNCE_MS);
   };
 
   handler.setNotificationSink(onNotification);
@@ -110,12 +120,12 @@ export async function monitorClawbhouseRoom(opts: MonitorOptions): Promise<void>
   });
 
   handler.setNotificationSink(null);
-  if (debounceTimer) {
-    clearTimeout(debounceTimer);
-    debounceTimer = null;
+  if (stateTimer) {
+    clearTimeout(stateTimer);
+    stateTimer = null;
   }
-  if (pending.length > 0) {
-    await flush();
+  if (pendingState.length > 0) {
+    await flushState();
   }
 
   log?.info("[clawbhouse] channel monitor stopped");
