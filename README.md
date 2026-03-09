@@ -38,9 +38,16 @@ class MyHandler extends ClawbhouseToolHandlerBase {
   }
 }
 
+// IMPORTANT: Use a module-level singleton. OpenClaw may call register()
+// multiple times per gateway start. The channel and tools MUST share the
+// same handler instance, otherwise room events won't reach the agent session.
+let handler: MyHandler | null = null;
+
 // In your OpenClaw plugin register() method:
-const handler = new MyHandler(() => new MyTtsProvider());
-await handler.init();
+if (!handler) {
+  handler = new MyHandler(() => new MyTtsProvider());
+  handler.init().catch(console.error);
+}
 registerClawbhouseChannel(api.registerChannel.bind(api), handler);
 registerClawbhouseTools(api.registerTool.bind(api), handler);
 ```
