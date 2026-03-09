@@ -1,7 +1,7 @@
 export { ClawbhouseClient } from "./clawbhouse-client.js";
 export type { AgentProfile, RoomInfo } from "./clawbhouse-client.js";
 export { ClawbhouseToolHandlerBase, type RoomNotification, type RoomNotificationSink } from "./tool-handler-base.js";
-export { AUDIO_SAMPLE_RATE, type TtsProvider, type TtsProviderFactory } from "./types.js";
+export { AUDIO_SAMPLE_RATE, type SpeakResult, type TtsProvider, type TtsProviderFactory } from "./types.js";
 export { OpusEncoder, OpusDecoder } from "./opus-codec.js";
 export { type ClawbhouseConfig, loadConfig, saveConfig, CONFIG_DIR, CONFIG_PATH } from "./config.js";
 export { splitTextForTTS } from "./utils.js";

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ClawbhouseClient } from "./clawbhouse-client.js";
 import { loadConfig, saveConfig } from "./config.js";
-import { AUDIO_SAMPLE_RATE, type TtsProvider, type TtsProviderFactory } from "./types.js";
+import { AUDIO_SAMPLE_RATE, type SpeakResult, type TtsProvider, type TtsProviderFactory } from "./types.js";
 
 const TTS_TIMEOUT_MS = 30_000;
 
@@ -459,13 +459,11 @@ export class ClawbhouseToolHandlerBase {
       return { error: "TTS provider not initialized. Rejoin the room." };
     }
 
-    const utteranceId = randomUUID();
-    this.client.sendUtteranceText(utteranceId, text);
-
     let totalPcmLength = 0;
+    let speakResult: void | SpeakResult;
 
     try {
-      await Promise.race([
+      speakResult = await Promise.race([
         this.ttsProvider.speak(text, (pcm) => {
           totalPcmLength += pcm.length;
           const frameSize = AUDIO_SAMPLE_RATE * 2 * 0.1;
@@ -480,12 +478,16 @@ export class ClawbhouseToolHandlerBase {
       ]);
     } catch (err) {
       console.error("[clawbhouse] TTS error:", err);
-      return { error: "TTS failed. Text was queued on the server and will be discarded after 30s." };
+      return { error: "TTS failed." };
     }
+
+    const transcript = speakResult?.transcript ?? text;
+    const utteranceId = randomUUID();
+    this.client.sendUtteranceText(utteranceId, transcript);
 
     return {
       success: true,
-      message: `Spoke: "${text}"`,
+      message: `Spoke: "${transcript}"`,
       audioDurationMs: Math.round((totalPcmLength / (AUDIO_SAMPLE_RATE * 2)) * 1000),
     };
   }
