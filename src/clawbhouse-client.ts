@@ -257,6 +257,7 @@ export class ClawbhouseClient {
 
   clearSendQueue(): void {
     this.sendQueue.length = 0;
+    this.opusEncoder?.reset();
     if (this.sendTimer) {
       clearInterval(this.sendTimer);
       this.sendTimer = null;

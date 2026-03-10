@@ -82,6 +82,10 @@ export class OpusEncoder {
     return [Buffer.from(encoded)];
   }
 
+  reset(): void {
+    this.buffer = Buffer.alloc(0);
+  }
+
   destroy(): void {
     this.encoder.delete();
   }
