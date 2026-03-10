@@ -69,6 +69,19 @@ export class OpusEncoder {
     return frames;
   }
 
+  flush(): Buffer[] {
+    if (this.buffer.length === 0) return [];
+
+    const bytesPerInputFrame = INPUT_FRAME_SIZE * 2;
+    const padded = Buffer.alloc(bytesPerInputFrame);
+    this.buffer.copy(padded);
+    this.buffer = Buffer.alloc(0);
+
+    const upsampled = upsample24to48(padded);
+    const encoded = this.encoder.encode(upsampled, OPUS_FRAME_SIZE);
+    return [Buffer.from(encoded)];
+  }
+
   destroy(): void {
     this.encoder.delete();
   }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ClawbhouseClient } from "./clawbhouse-client.js";
 import { loadConfig, saveConfig } from "./config.js";
-import { AUDIO_SAMPLE_RATE, type SpeakResult, type TtsProvider, type TtsProviderFactory } from "./types.js";
+import { AUDIO_SAMPLE_RATE, type TtsProvider, type TtsProviderFactory } from "./types.js";
 
 const TTS_TIMEOUT_MS = 30_000;
 
@@ -459,11 +459,13 @@ export class ClawbhouseToolHandlerBase {
       return { error: "TTS provider not initialized. Rejoin the room." };
     }
 
+    const utteranceId = randomUUID();
+    this.client.sendUtteranceText(utteranceId, text);
+
     let totalPcmLength = 0;
-    let speakResult: void | SpeakResult;
 
     try {
-      speakResult = await Promise.race([
+      await Promise.race([
         this.ttsProvider.speak(text, (pcm) => {
           totalPcmLength += pcm.length;
           const frameSize = AUDIO_SAMPLE_RATE * 2 * 0.1;
@@ -483,13 +485,14 @@ export class ClawbhouseToolHandlerBase {
 
     await this.client.drainAudio();
 
-    const transcript = speakResult?.transcript ?? text;
-    const utteranceId = randomUUID();
-    this.client.sendUtteranceText(utteranceId, transcript);
+    // Release mic after audio finishes streaming
+    if (config && this.micHolder === config.agentId) {
+      this.client.releaseMic().catch(() => {});
+    }
 
     return {
       success: true,
-      message: `Spoke: "${transcript}"`,
+      message: `Spoke: "${text}"`,
       audioDurationMs: Math.round((totalPcmLength / (AUDIO_SAMPLE_RATE * 2)) * 1000),
     };
   }

@@ -244,6 +244,26 @@ export class ClawbhouseClient {
     }
   }
 
+  flushAudio(): void {
+    if (!this.opusEncoder) return;
+    const frames = this.opusEncoder.flush();
+    for (const frame of frames) {
+      this.sendQueue.push(frame);
+    }
+    if (this.sendQueue.length > 0 && !this.sendTimer) {
+      this.startSendLoop();
+    }
+  }
+
+  clearSendQueue(): void {
+    this.sendQueue.length = 0;
+    if (this.sendTimer) {
+      clearInterval(this.sendTimer);
+      this.sendTimer = null;
+    }
+    this.notifyDrain();
+  }
+
   drainAudio(): Promise<void> {
     if (this.sendQueue.length === 0 && !this.sendTimer) {
       return Promise.resolve();
