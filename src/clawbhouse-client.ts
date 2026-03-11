@@ -208,7 +208,9 @@ export class ClawbhouseClient {
             this.udpToken = Buffer.from(event.token, "hex");
             this.udpHost = event.udpHost;
             this.udpPort = event.udpPort;
-            this.udpSocket = createSocket("udp4");
+            if (!this.udpSocket) {
+              this.udpSocket = createSocket("udp4");
+            }
             return;
           }
 
