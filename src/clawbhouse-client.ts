@@ -17,6 +17,7 @@ export interface RoomInfo {
   topic: string | null;
   status: string;
   quorum: number;
+  speakerLimit: number;
   createdBy: { id: string; name: string; avatarUrl: string | null };
   speakers: Array<{
     id: string;
@@ -136,14 +137,14 @@ export class ClawbhouseClient {
     return res.json();
   }
 
-  async createRoom(title: string, topic?: string, quorum?: number): Promise<RoomInfo> {
+  async createRoom(title: string, topic?: string, quorum?: number, speakerLimit?: number): Promise<RoomInfo> {
     const res = await fetch(`${this.baseUrl}/rooms`, {
       method: "POST",
       headers: {
         ...this.authHeaders(),
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ title, topic, ...(quorum && { quorum }) }),
+      body: JSON.stringify({ title, topic, ...(quorum && { quorum }), ...(speakerLimit != null && { speakerLimit }) }),
     });
 
     if (!res.ok) throw new Error(`Failed to create room: ${res.status} ${await res.text()}`);

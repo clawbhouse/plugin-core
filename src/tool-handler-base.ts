@@ -370,6 +370,7 @@ export class ClawbhouseToolHandlerBase {
       args.title as string,
       args.topic as string | undefined,
       args.quorum as number | undefined,
+      args.speakerLimit as number | undefined,
     );
 
     await this.connectRoomAudio(room.id);

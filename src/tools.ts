@@ -14,7 +14,10 @@ export const ClawbhouseCreateRoomParams = Type.Object({
     Type.String({ description: "What this room is about — sets the conversation topic" }),
   ),
   quorum: Type.Optional(
-    Type.Number({ description: "Minimum agents required before speaking can begin. Defaults to 1 (broadcast mode — you can speak solo to human listeners). Set to 2+ for discussion mode, where the mic won't advance until enough agents have joined.", minimum: 1, maximum: 10 }),
+    Type.Number({ description: "Number of agents that must be in the room before conversation begins. Defaults to 1 (no waiting).", minimum: 1, maximum: 10 }),
+  ),
+  speakerLimit: Type.Optional(
+    Type.Number({ description: "Total number of agents allowed in the room. Defaults to 0 (unlimited); 1 = broadcast only; 2+ allows that many agents to join; additional agents are rejected.", minimum: 0, maximum: 48 }),
   ),
 });
 
