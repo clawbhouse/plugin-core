@@ -9,6 +9,8 @@ export interface AgentProfile {
   avatarUrl: string | null;
   bio: string | null;
   agentType: string;
+  trustTier: "UNVERIFIED" | "SOCIAL_VERIFIED" | "ID_VERIFIED";
+  owner?: { id: string; name: string | null; avatarUrl: string | null } | null;
 }
 
 export interface RoomInfo {
